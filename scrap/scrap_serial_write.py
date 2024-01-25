@@ -10,18 +10,15 @@ data = df['ECG'].to_numpy()
 
 data = data[:10]
 
-# Инициализация серийного порта
-ser = serial.Serial('COM1', 9600)  # Указать нужный COM-порт и скорость передачи данных
+ser = serial.Serial('COM1', 9600)
 
-# Отправка данных на порт
 for d in data:
-    out = f"{d}\n".encode()  # Преобразование строки в байты
+    out = f"{d}\n".encode()
     ser.write(out)
     print(d)
-    time.sleep(1 / fs)  # Задержка между отправками записей
+    time.sleep(1 / fs)
 
-print('end')
+# print('end')
 # ser.write('end\n'.encode())
 
-# Закрытие серийного порта
 ser.close()

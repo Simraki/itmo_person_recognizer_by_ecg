@@ -114,8 +114,6 @@ class ECGIndentifier:
     def predict_target_data(self, target_data):
         X_pca = self.pca.transform([target_data])
         y_pred = self.knn.predict(X_pca)
-        print(self.le.classes_)
-        print(y_pred)
         return self.le.inverse_transform(y_pred)[0]
 
     def get_storage_info(self):

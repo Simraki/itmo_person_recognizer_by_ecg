@@ -71,7 +71,7 @@ class ECGAnalyzer:
         self.data = filtered_data
         self.filtered = True
 
-    def calc_rr_and_peaks(self, threshold=0.4, group_threshold=5):
+    def calc_rr_and_peaks(self, threshold=0.4, group_threshold=5, corrected=True):
         t = np.linspace(1.5 * np.pi, 3.5 * np.pi, 15)
         qrs_filter = np.sin(t)
 
@@ -92,9 +92,10 @@ class ECGAnalyzer:
 
         self.grouped_peaks = grouped_peaks
         self.rr = np.diff(grouped_peaks) * 1000 / self.fs
-        rr_corrected = self.rr.copy()
-        rr_corrected[np.abs(zscore(self.rr)) > 2] = np.median(self.rr)
-        self.rr = rr_corrected
+        if corrected:
+            rr_corrected = self.rr.copy()
+            rr_corrected[np.abs(zscore(self.rr)) > 2] = np.median(self.rr)
+            self.rr = rr_corrected
 
     def change_fs(self, target_fs):
         if len(self.data) == 0:

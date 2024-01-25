@@ -1,10 +1,11 @@
 import os
+import os
 import sys
 
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-import serial
 from PyQt5 import QtSerialPort, QtCore
 from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, QHBoxLayout, QStyle, \
     QFileDialog, QMessageBox, QLineEdit, QLabel, QPushButton
@@ -18,6 +19,11 @@ matplotlib.use('Qt5Agg')
 ecg_identifier = ECGIndentifier(preload=True)
 
 target_analyzer: ECGAnalyzer = None
+online_mode = False
+online_data = []
+
+# Для выяснения частоты дискретизации
+timestamp = 0
 
 
 def process_data(data):
@@ -43,6 +49,7 @@ class Canvas(FigureCanvasQTAgg):
     def clear(self):
         self.figure.clear()
 
+    @QtCore.pyqtSlot()
     def plot_signal(self):
         self.figure.clear()
         ax = self.figure.add_subplot(111)
@@ -52,6 +59,7 @@ class Canvas(FigureCanvasQTAgg):
         ax.set_title("ECG signal")
         self.draw()
 
+    @QtCore.pyqtSlot()
     def plot_cardio_histogram(self):
         self.figure.clear()
         ax = self.figure.add_subplot(111)
@@ -73,9 +81,6 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         title = "ECG Identifier 007"
-        self.online_mode = False
-        self.online_data = []
-        self.online_analyzer: ECGAnalyzer = None
 
         self.setWindowTitle(title)
 
@@ -114,7 +119,7 @@ class MainWindow(QMainWindow):
             text="Start online checking",
             parent=self
         )
-        self.button_toggle_online_person_check.toggled.connect(self.toggle_online_person_check)
+        self.button_toggle_online_person_check.clicked.connect(self.toggle_online_person_check)
 
         # ==========================
 
@@ -202,32 +207,45 @@ class MainWindow(QMainWindow):
         self.show()
 
         self.serial = QtSerialPort.QSerialPort(
-            'COM2',
-            baudRate=QtSerialPort.QSerialPort.Baud9600,
+            'COM3',
+            baudRate=QtSerialPort.QSerialPort.Baud4800,
             readyRead=self.receive_online_data
         )
 
     @QtCore.pyqtSlot()
     def receive_online_data(self):
+        global online_data, timestamp
+
         while self.serial.canReadLine():
             line = self.serial.readLine().data().decode().strip()
 
             if not line.lstrip('-+').replace('.', '', 1).isdigit():
                 continue
 
-            self.online_data.append(float(line))
-            self.update_all_by_online_data(with_predict=len(self.online_data) > 4 * 125.0)
+            online_data.append(float(line))
 
+            # Для выяснения частоты дискретизации
+            # if timestamp == 0:
+            #     timestamp = time.time()
+            # elif time.time() - timestamp >10:
+            #     print("size", len(online_data))
+
+            if len(online_data) % 50 == 0:
+                if np.any(online_data != 0):
+                    self.update_all_by_online_data(with_predict=True)
+
+    @QtCore.pyqtSlot()
     def update_all_by_online_data(self, with_predict=False):
-        global target_analyzer
-        analyzer = ECGAnalyzer(fs=125.0)
-        analyzer.load_data(self.online_data)
+        global target_analyzer, online_data
+        analyzer = ECGAnalyzer(fs=35.0)
+        analyzer.load_data(online_data)
+        analyzer.change_fs(125)
         analyzer.make_filtering()
         analyzer.calc_rr_and_peaks(threshold=0.3)
 
         target_analyzer = analyzer
 
-        self.show_plots()
+        self.show_plots(with_hist=False)
         if with_predict:
             self.predict_person()
 
@@ -267,39 +285,28 @@ class MainWindow(QMainWindow):
                 self.button_show_timedomain_metrics.setEnabled(False)
                 QMessageBox.critical(self, "Error", f"Failed to load CSV file: {str(e)}")
 
-    @QtCore.pyqtSlot(bool)
-    def toggle_online_person_check(self, checked):
-        print(checked)
-        # self.online_mode = not self.online_mode
-        # self.button_load_person_for_check.setEnabled(not self.online_mode)
-        # self.button_check_person.setEnabled(not self.online_mode)
-        # self.button_show_plots.setEnabled(not self.online_mode)
-        # self.button_show_timedomain_metrics.setEnabled(not self.online_mode)
-        #
-        # self.button_toggle_online_person_check.setText(
-        #     'Stop online checking' if self.online_mode else 'Start online checking'
-        # )
-        #
-        # if self.online_mode:
-        #     self.signal_plotter.clear()
-        #     self.cardio_hist_plotter.clear()
-        #
-        #     ser = serial.Serial('COM2', 9600)  # Указать нужный COM-порт и скорость передачи данных
-        #
-        #     while True:
-        #         # Wait until there is data waiting in the serial buffer
-        #         line = ser.readline().decode().strip()  # Чтение строки с порта и декодирование из байтов
-        #
-        #         if line == 'end':
-        #             print('close socket')
-        #             break
-        #
-        #         if not line.lstrip('-+').replace('.', '', 1).isdigit():
-        #             continue
-        #
-        #         data.append(float(line))
-        #         plt.plot(data)  # Построение графика
-        #         plt.pause(0.01)  # Задержка между обновлениями графика
+    def toggle_online_person_check(self):
+        global online_mode
+        online_mode = not online_mode
+        self.button_load_person_for_check.setEnabled(not online_mode)
+        self.button_check_person.setEnabled(not online_mode)
+        self.button_show_plots.setEnabled(not online_mode)
+        self.button_show_timedomain_metrics.setEnabled(not online_mode)
+
+        self.button_toggle_online_person_check.setText(
+            'Stop online checking' if online_mode else 'Start online checking'
+        )
+
+        if online_mode:
+            self.signal_plotter.clear()
+            self.cardio_hist_plotter.clear()
+            if not self.serial.isOpen():
+                self.serial.open(QtCore.QIODevice.ReadWrite)
+                if not self.serial.isOpen():
+                    self.toggle_online_person_check()
+        else:
+            if self.serial.isOpen():
+                self.serial.close()
 
     def load_person_for_check(self):
         global target_analyzer
@@ -331,9 +338,11 @@ class MainWindow(QMainWindow):
             f"Predicted person: {predicted_label}"
         )
 
-    def show_plots(self):
+    @QtCore.pyqtSlot()
+    def show_plots(self, with_hist=True):
         self.signal_plotter.plot_signal()
-        self.cardio_hist_plotter.plot_cardio_histogram()
+        if with_hist:
+            self.cardio_hist_plotter.plot_cardio_histogram()
 
     def show_timedomain_metrics(self):
         output_str = ""
@@ -342,13 +351,19 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Timedomain metrics", output_str)
 
     def show_storage_info(self):
-        output_str = "Class => records"
+        output_str = "Class => records\n"
         for key, value in ecg_identifier.get_storage_info().items():
             output_str += f"{key} => {value} \n"
         QMessageBox.information(self, "Storage info", output_str)
 
 
 if __name__ == '__main__':
+    sys._excepthook = sys.excepthook
+    def my_exception_hook(exctype, value, traceback):
+        print(exctype, value, traceback)
+        sys._excepthook(exctype, value, traceback)
+        sys.exit(1)
+    sys.excepthook = my_exception_hook
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

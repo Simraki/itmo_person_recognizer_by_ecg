@@ -1,13 +1,11 @@
 import serial
 from matplotlib import pyplot as plt
 
-# Инициализация серийного порта
-ser = serial.Serial('COM2', 9600)  # Указать нужный COM-порт и скорость передачи данных
+ser = serial.Serial('COM2', 9600)
 
-# Чтение данных с порта и построение графика
 data = []
 while True:
-    # Wait until there is data waiting in the serial buffer
+    # print(ser.readline().decode(encoding='ascii', errors="ignore").strip())
     line = ser.readline().decode().strip()  # Чтение строки с порта и декодирование из байтов
 
     if line == 'end':
@@ -18,8 +16,7 @@ while True:
         continue
 
     data.append(float(line))
-    plt.plot(data)  # Построение графика
-    plt.pause(0.01)  # Задержка между обновлениями графика
+    # plt.plot(data)
+    # plt.pause(0.01)
 
-# Закрытие серийного порта
 ser.close()
